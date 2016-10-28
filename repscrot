@@ -1,0 +1,182 @@
+#!/bin/bash
+#
+#    DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE 
+#                    Version 2, December 2004 
+#
+# Copyright (C) 2013 Rasmus Edgar < regj at arch-ed dot dk >  
+#
+# Everyone is permitted to copy and distribute verbatim or modified 
+# copies of this license document, and changing it is allowed as long 
+# as the name is changed. 
+#
+#            DO WHAT THE FUCK YOU WANT TO PUBLIC LICENSE 
+#   TERMS AND CONDITIONS FOR COPYING, DISTRIBUTION AND MODIFICATION 
+#
+#  0. You just DO WHAT THE FUCK YOU WANT TO.
+
+# Repetitive screenshot tool version 1.0
+#
+# -------------------------
+# Updated version by Rasmus Edgar 2013.12
+# Initial version by Rasmus Edgar 2012.05
+#
+# -------------------------
+
+
+# Check for xdotool and imagemagick - exit with message if missing
+
+if ! which xdotool > /dev/null 2>&1; then
+	echo "xdotool is a dependency. Install it." 
+	exit 1
+fi
+
+if ! which convert > /dev/null 2>&1; then
+	echo "imagemagick is a dependency. Install it."
+	exit 1
+fi
+
+# Check if ewmh is enabled
+
+if ! xdotool getactivewindow > /dev/null 2>&1; then
+	echo "You need to enable emwh if running a tiling window manager or other wm without emwh."
+	exit 1
+fi
+
+# Check for config file and create if needed with sane defaults then exit.
+if [ ! -f "$HOME"/.repscrot ]; then
+	echo "Creating repscrot config file $HOME/.repscrot. Adjust to your liking."
+	echo "scrotfldrbase=$HOME/Desktop/scrots" > "$HOME"/.repscrot
+	{
+	echo "fontsize=14"
+        echo "fillcolor=white"
+        echo "whiteterm=yes"
+        echo "subw=130"
+        echo "subh=5"
+        echo "jpgquality=100"
+        echo "type=png"
+        echo "fontpath=/usr/share/fonts/TTF/DejaVuSansMono.ttf"
+        echo "datestamp=yes" 
+	} >> "$HOME"/.repscrot
+fi
+
+# Source config file
+source "$HOME"/.repscrot
+
+
+# Options for script below
+OPTIND=1
+while getopts "s:rn:ch" opt; do
+	case "$opt" in
+	s)
+	echo "$OPTARG" > /tmp/"$USER"-scrot-srvid 
+	exit 0
+	;;
+	r)
+	echo "Resetting counter."
+	echo "0" > /tmp/"$USER"-scrot-count  
+	;;
+	n)
+	echo "$OPTARG" > /tmp/"$USER"-scrot-count
+	;;
+	c)
+	srvid=$(cat /tmp/"$USER"-scrot-srvid)
+	scrotfldr="$scrotfldrbase"/"$srvid"
+	echo "Cleaning ${scrotfldr} and tmp files."
+	rm -f "$scrotfldr"/*."$type" ; rm -f /tmp/"$USER"-scrot-*
+	exit 0
+	;;
+	h)
+	echo "Options are:
+                -s: Set servername to label the scrots.
+                -r: Reset counter for enumerating ${type}'s.
+                -c: Delete ${type}'s in current serverfolder and reset counters and serverid.
+                -n: Set counter preferred count.
+                -h: This info. Check config options in ${HOME}/.repscrot for further customization."
+	exit 0
+	;;
+	esac
+done
+shift $((OPTIND-1))
+
+# Check if serverid is defined, use if yes
+if [ -s /tmp/"$USER"-scrot-srvid ]; then
+	srvid=$(cat /tmp/"$USER"-scrot-srvid)
+	scrotfldr="$scrotfldrbase"/"$srvid"
+else
+	echo "Please set server id with -s option; repscrot -s <servername>"
+	exit 1
+fi
+
+
+# convert functions for white or black terminal
+conv_black () {
+convert -pointsize "$fontsize" \
+    	-font "$fontpath" \
+    	-fill "$fillcolor" \
+    	-draw "text ${xyplace} \"$(date "+%Y.%m.%d %H:%M"|sed -e ' s/\"/\\\"/g' )\"" \
+    	"$scrotfldr"/"$srvid"-"$count"."$type" "$scrotfldr"/"$srvid"-"$count"."$type"
+}
+
+conv_white () {
+convert -pointsize "$fontsize" \
+        -font "$fontpath" \
+        -fill "$fillcolor" \
+    	-stroke black \
+    	-strokewidth 1 \
+        -draw "text ${xyplace} \"$(date "+%Y.%m.%d %H:%M"|sed -e ' s/\"/\\\"/g' )\"" \
+        "$scrotfldr"/"$srvid"-"$count"."$type" "$scrotfldr"/"$srvid"-"$count"."$type"
+}
+	
+
+
+
+# Create count file
+if [ ! -f /tmp/"$USER"-scrot-count ]; then
+	echo "0" > /tmp/"$USER"-scrot-count
+fi
+
+# Create Screenshot folder if not present
+if [ ! -d "$scrotfldr" ];  then
+	mkdir -p "$scrotfldr"
+fi
+
+# Get active window ID
+activewinid=$(xdotool getactivewindow)
+
+# Get geometry of window
+geowinw=$(xdotool getwindowgeometry -shell "$activewinid" | awk -F"=" '/WIDTH/ {print $2}')
+geowinh=$(xdotool getwindowgeometry -shell "$activewinid" | awk -F"=" '/HEIGHT/ {print $2}')
+
+# Define X,Y placment of date text
+xyplace="$((geowinw - subw)),$((geowinh - subh))"
+
+# Get current count
+count=$(cat /tmp/"$USER"-scrot-count)
+
+# Take screenshot
+case "$type" in
+
+    "jpg") import -quality "$jpgquality" -window "$activewinid" "$scrotfldr"/"$srvid"-"$count".jpg 
+        ;;
+
+    "png") import -window "$activewinid" "$scrotfldr"/"$srvid"-"$count".png 
+        ;;
+
+        *) echo -e "Image type unknown. Supported types are png and jpg. Edit # Take screenshot section (line 129) in script to add new ones. Exiting."
+	   exit 1 
+	    ;;
+
+esac
+
+# Insert date stamp, if enabled, into screenshot use xyplace variable to adjust
+# placement.
+if [ "$datestamp" = yes ] ; then
+    if [ "$whiteterm" = yes ] ; then
+    	conv_white
+    else
+	conv_black
+    fi
+fi
+
+# Increment counter
+echo $((count+1)) > /tmp/"$USER"-scrot-count
